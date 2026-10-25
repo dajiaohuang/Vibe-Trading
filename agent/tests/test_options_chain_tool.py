@@ -129,6 +129,41 @@ class TestOptionsChainSuccess:
         assert len(data["calls"]) == oc._MAX_CONTRACTS_PER_SIDE
         assert all(row["strike"] != data["atm_strike"] for row in data["calls"])
 
+    @pytest.mark.parametrize(
+        ("field", "key", "value"),
+        [
+            ("bid", "bid", float("nan")),
+            ("lastPrice", "last_price", float("inf")),
+            ("impliedVolatility", "implied_volatility", float("-inf")),
+        ],
+    )
+    def test_nonfinite_contract_numbers_remain_strict_json(self, field, key, value):
+        result = _sample_result()
+        result["options"][0]["calls"][0][field] = value
+        with patch.object(oc.yahoo_client, "get_options", return_value=result):
+            out = oc.OptionsChainTool().execute(ticker="AAPL")
+
+        def reject_nonstandard_constant(token: str) -> None:
+            raise ValueError(f"non-standard JSON number: {token}")
+
+        payload = json.loads(out, parse_constant=reject_nonstandard_constant)
+        assert payload["ok"] is True
+        assert payload["data"]["calls"][0][key] is None
+
+    def test_nonfinite_expiration_values_are_omitted_or_null(self):
+        result = _sample_result()
+        result["expirationDates"].extend([float("nan"), float("inf")])
+        result["options"][0]["expirationDate"] = float("nan")
+        with patch.object(oc.yahoo_client, "get_options", return_value=result):
+            out = oc.OptionsChainTool().execute(ticker="AAPL")
+
+        def reject_nonstandard_constant(token: str) -> None:
+            raise ValueError(f"non-standard JSON number: {token}")
+
+        payload = json.loads(out, parse_constant=reject_nonstandard_constant)
+        assert payload["data"]["expirations"] == [1750000000, 1750604800]
+        assert payload["data"]["expiration"] is None
+
     @pytest.mark.parametrize("quote", [None, {}, {"regularMarketPrice": None},
         {"regularMarketPrice": True}, {"regularMarketPrice": 0},
         {"regularMarketPrice": float("nan")}, {"regularMarketPrice": "337.4"}])

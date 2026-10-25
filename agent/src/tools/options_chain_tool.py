@@ -155,7 +155,9 @@ def _coerce_expiration(value: Any) -> Optional[int]:
 def _success(ticker: str, result: Dict[str, Any]) -> str:
     """Build the success envelope from a quote-chain ``result[0]`` mapping."""
     expirations = [
-        epoch for epoch in (result.get("expirationDates") or []) if epoch is not None
+        epoch
+        for epoch in (result.get("expirationDates") or [])
+        if epoch is not None and _finite_json_value(epoch) is not None
     ]
     options = result.get("options") or []
     block = options[0] if options and isinstance(options[0], dict) else {}
@@ -183,7 +185,7 @@ def _success(ticker: str, result: Dict[str, Any]) -> str:
         "ticker": ticker,
         "underlying_price": underlying_price,
         "atm_strike": atm_strike,
-        "expiration": block.get("expirationDate"),
+        "expiration": _finite_json_value(block.get("expirationDate")),
         "expirations": expirations,
         "calls_count": len(calls),
         "puts_count": len(puts),
@@ -193,7 +195,15 @@ def _success(ticker: str, result: Dict[str, Any]) -> str:
     return json.dumps(
         {"ok": True, "market": "us", "source": "yahoo", "data": data},
         ensure_ascii=False,
+        allow_nan=False,
     )
+
+
+def _finite_json_value(value: Any) -> Any:
+    """Replace non-finite source floats with JSON null."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def _positive_number(value: Any) -> float | None:
@@ -219,7 +229,10 @@ def _contracts(raw: Any) -> List[Dict[str, Any]]:
         if not isinstance(entry, dict):
             continue
         rows.append(
-            {our_key: entry.get(yahoo_key) for yahoo_key, our_key in _CONTRACT_FIELDS}
+            {
+                our_key: _finite_json_value(entry.get(yahoo_key))
+                for yahoo_key, our_key in _CONTRACT_FIELDS
+            }
         )
     return rows
 
